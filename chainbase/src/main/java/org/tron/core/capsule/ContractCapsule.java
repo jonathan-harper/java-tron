@@ -123,7 +123,15 @@ public class ContractCapsule implements ProtoCapsule<SmartContract> {
   }
 
   public void clearABI() {
-    this.smartContract = this.smartContract.toBuilder().setAbi(ABI.getDefaultInstance()).build();
+    this.smartContract = this.smartContract.toBuilder().clearAbi().build();
+  }
+
+  public boolean hasABI() {
+    return this.smartContract.hasAbi();
+  }
+
+  public void setABI(ABI abi) {
+    this.smartContract = this.smartContract.toBuilder().setAbi(abi).build();
   }
 
   public byte[] getTrxHash() {

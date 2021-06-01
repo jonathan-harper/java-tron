@@ -2,10 +2,10 @@ package org.tron.core.store;
 
 import com.google.common.collect.Streams;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.ArrayUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.tron.core.capsule.AbiCapsule;
 import org.tron.core.capsule.ContractCapsule;
 import org.tron.core.db.TronStoreWithRevoking;
 import org.tron.protos.contract.SmartContractOuterClass.SmartContract;
@@ -15,13 +15,37 @@ import org.tron.protos.contract.SmartContractOuterClass.SmartContract;
 public class ContractStore extends TronStoreWithRevoking<ContractCapsule> {
 
   @Autowired
+  private AbiStore abiStore;
+
+  @Autowired
   private ContractStore(@Value("contract") String dbName) {
     super(dbName);
   }
 
   @Override
   public ContractCapsule get(byte[] key) {
-    return getUnchecked(key);
+    ContractCapsule contractCapsule = getUnchecked(key);
+    if (contractCapsule == null) {
+      return null;
+    }
+    if (!contractCapsule.hasABI()) {
+      AbiCapsule abiCapsule = abiStore.get(key);
+      if (abiCapsule != null) {
+        contractCapsule.setABI(abiCapsule.getInstance());
+      }
+    }
+    return contractCapsule;
+  }
+
+  public ContractCapsule getWithoutAbi(byte[] key) {
+    ContractCapsule contractCapsule = getUnchecked(key);
+    if (contractCapsule == null) {
+      return null;
+    }
+    if (contractCapsule.hasABI()) {
+      contractCapsule.clearABI();
+    }
+    return contractCapsule;
   }
 
   /**
@@ -44,18 +68,12 @@ public class ContractStore extends TronStoreWithRevoking<ContractCapsule> {
    * @return
    */
   public SmartContract.ABI getABI(byte[] contractAddress) {
-    byte[] value = revokingDB.getUnchecked(contractAddress);
-    if (ArrayUtils.isEmpty(value)) {
+    ContractCapsule contractCapsule = get(contractAddress);
+    if (contractCapsule == null) {
       return null;
     }
 
-    ContractCapsule contractCapsule = new ContractCapsule(value);
-    SmartContract smartContract = contractCapsule.getInstance();
-    if (smartContract == null) {
-      return null;
-    }
-
-    return smartContract.getAbi();
+    return contractCapsule.getInstance().getAbi();
   }
 
 }

@@ -6,6 +6,9 @@ import static org.tron.core.config.Parameter.ChainConstant.BLOCK_PRODUCED_INTERV
 import com.google.protobuf.ByteString;
 import java.util.HashMap;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.spongycastle.util.Strings;
@@ -45,6 +48,9 @@ import org.tron.protos.Protocol.AccountType;
 @Slf4j(topic = "Repository")
 public class RepositoryImpl implements Repository {
 
+  private static final ExecutorService workers
+      = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() / 2 + 1);
+
   //for energycal
   private long precision = Parameter.ChainConstant.PRECISION;
   private long windowSize = Parameter.ChainConstant.WINDOW_SIZE_MS /
@@ -62,6 +68,8 @@ public class RepositoryImpl implements Repository {
   private AssetIssueStore assetIssueStore;
   @Getter
   private AssetIssueV2Store assetIssueV2Store;
+  @Getter
+  private AbiStore abiStore;
   @Getter
   private CodeStore codeStore;
   @Getter
@@ -112,6 +120,7 @@ public class RepositoryImpl implements Repository {
       ChainBaseManager manager = storeFactory.getChainBaseManager();
       dynamicPropertiesStore = manager.getDynamicPropertiesStore();
       accountStore = manager.getAccountStore();
+      abiStore = manager.getAbiStore();
       codeStore = manager.getCodeStore();
       contractStore = manager.getContractStore();
       assetIssueStore = manager.getAssetIssueStore();
@@ -349,7 +358,7 @@ public class RepositoryImpl implements Repository {
     if (parent != null) {
       contractCapsule = parent.getContract(address);
     } else {
-      contractCapsule = getContractStore().get(address);
+      contractCapsule = getContractStore().getWithoutAbi(address);
     }
 
     if (contractCapsule != null) {
@@ -786,6 +795,14 @@ public class RepositoryImpl implements Repository {
         } else {
           getContractStore().put(key.getData(), value.getContract());
         }
+      }
+    }));
+    workers.submit(() -> contractCache.forEach((k, v) -> {
+      ContractCapsule contractCapsule = v.getContract();
+      if (contractCapsule.hasABI()) {
+        abiStore.put(k.getData(), new AbiCapsule(contractCapsule));
+        contractCapsule.clearABI();
+        contractStore.put(k.getData(), contractCapsule);
       }
     }));
   }
