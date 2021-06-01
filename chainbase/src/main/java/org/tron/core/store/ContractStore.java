@@ -1,18 +1,29 @@
 package org.tron.core.store;
 
 import com.google.common.collect.Streams;
+import io.netty.util.internal.ConcurrentSet;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.tron.common.utils.ByteArray;
 import org.tron.core.capsule.AbiCapsule;
 import org.tron.core.capsule.ContractCapsule;
 import org.tron.core.db.TronStoreWithRevoking;
 import org.tron.protos.contract.SmartContractOuterClass.SmartContract;
 
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 @Slf4j(topic = "DB")
 @Component
 public class ContractStore extends TronStoreWithRevoking<ContractCapsule> {
+
+  private static final ExecutorService workers
+      = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() / 2 + 1);
+
+  private static final Set<String> workingSet = new ConcurrentSet<>();
 
   @Autowired
   private AbiStore abiStore;
@@ -28,7 +39,9 @@ public class ContractStore extends TronStoreWithRevoking<ContractCapsule> {
     if (contractCapsule == null) {
       return null;
     }
-    if (!contractCapsule.hasABI()) {
+    if (contractCapsule.hasABI()) {
+      moveAbi(key, contractCapsule);
+    } else {
       AbiCapsule abiCapsule = abiStore.get(key);
       if (abiCapsule != null) {
         contractCapsule.setABI(abiCapsule.getInstance());
@@ -43,9 +56,23 @@ public class ContractStore extends TronStoreWithRevoking<ContractCapsule> {
       return null;
     }
     if (contractCapsule.hasABI()) {
+      moveAbi(key, contractCapsule);
       contractCapsule.clearABI();
     }
     return contractCapsule;
+  }
+
+  private void moveAbi(byte[] key, ContractCapsule contractCapsule) {
+    String keyHexStr = ByteArray.toHexString(key);
+    if (workingSet.contains(keyHexStr)) {
+      workingSet.add(keyHexStr);
+      AbiCapsule abiCapsule = new AbiCapsule(contractCapsule);
+      workers.submit(() -> {
+        abiStore.put(key, abiCapsule);
+        put(key, contractCapsule);
+        workingSet.remove(keyHexStr);
+      });
+    }
   }
 
   /**

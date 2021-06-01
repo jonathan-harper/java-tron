@@ -6,8 +6,6 @@ import static org.tron.core.config.Parameter.ChainConstant.BLOCK_PRODUCED_INTERV
 import com.google.protobuf.ByteString;
 import java.util.HashMap;
 import java.util.Optional;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -47,9 +45,6 @@ import org.tron.protos.Protocol.AccountType;
 
 @Slf4j(topic = "Repository")
 public class RepositoryImpl implements Repository {
-
-  private static final ExecutorService workers
-      = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() / 2 + 1);
 
   //for energycal
   private long precision = Parameter.ChainConstant.PRECISION;
@@ -793,16 +788,13 @@ public class RepositoryImpl implements Repository {
         if (deposit != null) {
           deposit.putContract(key, value);
         } else {
-          getContractStore().put(key.getData(), value.getContract());
+          ContractCapsule contractCapsule = value.getContract();
+          if (value.getType().isCreate() && contractCapsule.hasABI()) {
+            abiStore.put(key.getData(), new AbiCapsule(contractCapsule));
+            contractCapsule.clearABI();
+          }
+          getContractStore().put(key.getData(), contractCapsule);
         }
-      }
-    }));
-    workers.submit(() -> contractCache.forEach((k, v) -> {
-      ContractCapsule contractCapsule = v.getContract();
-      if (contractCapsule.hasABI()) {
-        abiStore.put(k.getData(), new AbiCapsule(contractCapsule));
-        contractCapsule.clearABI();
-        contractStore.put(k.getData(), contractCapsule);
       }
     }));
   }
