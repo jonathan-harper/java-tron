@@ -62,11 +62,13 @@ public class ContractStore extends TronStoreWithRevoking<ContractCapsule> {
     return contractCapsule;
   }
 
-  private void moveAbi(byte[] key, ContractCapsule contractCapsule) {
+  private void moveAbi(byte[] key, ContractCapsule originContract) {
     String keyHexStr = ByteArray.toHexString(key);
-    if (workingSet.contains(keyHexStr)) {
+    if (!workingSet.contains(keyHexStr)) {
       workingSet.add(keyHexStr);
-      AbiCapsule abiCapsule = new AbiCapsule(contractCapsule);
+      AbiCapsule abiCapsule = new AbiCapsule(originContract);
+      ContractCapsule contractCapsule = new ContractCapsule(
+          originContract.getInstance().toBuilder().clearAbi().build());
       workers.submit(() -> {
         abiStore.put(key, abiCapsule);
         put(key, contractCapsule);
