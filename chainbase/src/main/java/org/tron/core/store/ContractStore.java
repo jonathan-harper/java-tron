@@ -1,18 +1,15 @@
 package org.tron.core.store;
 
 import com.google.common.collect.Streams;
-import io.netty.util.internal.ConcurrentSet;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.tron.common.utils.ByteArray;
 import org.tron.core.capsule.AbiCapsule;
 import org.tron.core.capsule.ContractCapsule;
 import org.tron.core.db.TronStoreWithRevoking;
 import org.tron.protos.contract.SmartContractOuterClass.SmartContract;
 
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -22,8 +19,6 @@ public class ContractStore extends TronStoreWithRevoking<ContractCapsule> {
 
   private static final ExecutorService workers
       = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() / 2 + 1);
-
-  private static final Set<String> workingSet = new ConcurrentSet<>();
 
   @Autowired
   private AbiStore abiStore;
@@ -40,7 +35,9 @@ public class ContractStore extends TronStoreWithRevoking<ContractCapsule> {
       return null;
     }
     if (contractCapsule.hasABI()) {
-      moveAbi(key, contractCapsule);
+      abiStore.put(key, new AbiCapsule(contractCapsule));
+      this.put(key, new ContractCapsule(
+          contractCapsule.getInstance().toBuilder().clearAbi().build()));
     } else {
       AbiCapsule abiCapsule = abiStore.get(key);
       if (abiCapsule != null) {
@@ -63,18 +60,13 @@ public class ContractStore extends TronStoreWithRevoking<ContractCapsule> {
   }
 
   private void moveAbi(byte[] key, ContractCapsule originContract) {
-    String keyHexStr = ByteArray.toHexString(key);
-    if (!workingSet.contains(keyHexStr)) {
-      workingSet.add(keyHexStr);
-      AbiCapsule abiCapsule = new AbiCapsule(originContract);
-      ContractCapsule contractCapsule = new ContractCapsule(
-          originContract.getInstance().toBuilder().clearAbi().build());
-      workers.submit(() -> {
-        abiStore.put(key, abiCapsule);
-        put(key, contractCapsule);
-        workingSet.remove(keyHexStr);
-      });
-    }
+    AbiCapsule abiCapsule = new AbiCapsule(originContract);
+    ContractCapsule contractCapsule = new ContractCapsule(
+        originContract.getInstance().toBuilder().clearAbi().build());
+    workers.submit(() -> {
+      abiStore.put(key, abiCapsule);
+      put(key, contractCapsule);
+    });
   }
 
   /**
